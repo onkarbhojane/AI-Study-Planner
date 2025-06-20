@@ -1,4 +1,3 @@
-// AIPlannerScreen.js
 import React, { useState } from "react";
 import {
   View,
@@ -13,18 +12,29 @@ import {
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 
-const API_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key";
+const API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key";
 const USE_MOCK_API = false;
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export default function AIPlanner({ navigation, route }) {
-  const { days, setDays } = route.params;
+  const { days, setDays, currentTask } = route.params;
   const [userPrompt, setUserPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [apiKey, setApiKey] = useState(
-    "AIzaSyBWfxTjfJKHYL6nN87dwjFSz1pdTG9IEZQ"
-  );
+  const [apiKey, setApiKey] = useState("AIzaSyBWfxTjfJKHYL6nN87dwjFSz1pdTG9IEZQ");
   const [error, setError] = useState("");
+
+  const validateTasks = (tasks) => {
+    if (!Array.isArray(tasks)) return false;
+    
+    return tasks.every(task => {
+      const hasRequiredFields = task.task && task.start_time && task.end_time;
+      const isValidTimeFormat = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(task.start_time) && 
+                              /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(task.end_time);
+      const isValidCredits = task.credits >= 1 && task.credits <= 10;
+      
+      return hasRequiredFields && isValidTimeFormat && isValidCredits;
+    });
+  };
 
   const generateAIPlan = async () => {
     if (!userPrompt.trim()) {
@@ -36,6 +46,40 @@ export default function AIPlanner({ navigation, route }) {
     setError("");
 
     try {
+      const isDaily = currentTask !== "weekly";
+      const prompt = `Create a ${isDaily ? "daily" : "weekly"} timetable in JSON format based on these requirements:
+      ${userPrompt}
+      
+      Return ONLY a valid JSON array of task objects with these exact fields:
+      - task (string): Task name/description
+      - start_time (string): Start time in 24h format (HH:MM)
+      - end_time (string): End time in 24h format (HH:MM)
+      - credits (number): Importance points (1-10)
+      - notes (string): Additional details
+      ${isDaily ? "" : "- day (string): Weekday name (Monday-Sunday)"}
+      
+      Example response for ${isDaily ? "daily" : "weekly"}:
+      ${isDaily ? `
+      [
+        {
+          "task": "Morning Exercise",
+          "start_time": "07:00",
+          "end_time": "08:00",
+          "credits": 8,
+          "notes": "Yoga and stretching"
+        }
+      ]` : `
+      [
+        {
+          "task": "Team Meeting",
+          "start_time": "10:00",
+          "end_time": "11:00",
+          "credits": 9,
+          "notes": "Weekly project sync",
+          "day": "Monday"
+        }
+      ]`}`;
+
       const response = await fetch(`${API_ENDPOINT}=${apiKey}`, {
         method: "POST",
         headers: {
@@ -46,9 +90,7 @@ export default function AIPlanner({ navigation, route }) {
             {
               parts: [
                 {
-                  text:
-                    userPrompt +
-                    `\n\nProvide a daily timetable based on my goals. Format the response EXACTLY as follows:\n\nYour weekly plan:\n- 7:00 AM: Activity description\n- 9:00 AM: Activity description\n- 11:00 AM: Activity description\n\nImportant: Use hyphen bullets, time in 12-hour format with AM/PM, and a colon after the time.`,
+                  text: prompt,
                 },
               ],
             },
@@ -57,66 +99,130 @@ export default function AIPlanner({ navigation, route }) {
       });
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        throw new Error(`API request failed with status ${response.status}`);
       }
 
       const result = await response.json();
-      const aiText =
-        result.candidates?.[0]?.content?.parts?.[0]?.text ||
-        "No content returned.";
+      const aiText = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      console.log("AI Response:", aiText);
+      
+      const parseTasks = (text) => {
+        try {
+          // First attempt to find JSON in the response
+          const jsonStart = text.indexOf('[');
+          const jsonEnd = text.lastIndexOf(']') + 1;
+          if (jsonStart !== -1 && jsonEnd !== -1) {
+            const jsonString = text.substring(jsonStart, jsonEnd);
+            const parsed = JSON.parse(jsonString);
+            
+            if (Array.isArray(parsed)) {
+              return parsed.map(task => ({
+                task: task.task || "Unnamed Task",
+                start_time: task.start_time || "00:00",
+                end_time: task.end_time || "00:00",
+                credits: Math.min(10, Math.max(1, Number(task.credits) || 5)),
+                notes: task.notes || "",
+                day: task.day || ""
+              }));
+            }
+          }
+          
+          // Fallback for non-JSON responses
+          const taskRegex = /(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2}):?\s*(.*?)\s*(?:\|\s*Priority:\s*(\w+))?\s*(?:\|\s*Notes:\s*(.*))?/gi;
+          const tasks = [];
+          let match;
 
-      const parseAITextToTasks = (aiText) => {
-        const taskLines = aiText
-          .split("\n")
-          .filter((line) =>
-            line.match(/^\s*[-•*]\s*\d{1,2}[:.]\d{2}\s*(AM|PM|am|pm)/i)
-          );
+          while ((match = taskRegex.exec(text)) !== null) {
+            const [, start, end, taskName, priority, notes] = match;
+            const credits = priority 
+              ? { high: 9, medium: 6, low: 3 }[priority.toLowerCase()] || 5
+              : 5;
 
-        return taskLines
-          .map((line) => {
-            const match = line.match(
-              /^\s*[-•*]\s*(\d{1,2}[:.]\d{2}\s*(?:AM|PM|am|pm)?)\s*[:-]?\s*(.*)/i
-            );
-
-            if (!match) return null;
-
-            // Normalize time format (replace dots with colons)
-            const time = match[1].replace(".", ":").toUpperCase();
-            const activity = match[2].trim();
-
-            return {
-              id: Date.now() + Math.random(),
-              text: `${activity} (${time})`,
-              completed: false,
-              points: Math.floor(Math.random() * 6 + 5),
-              time,
-            };
-          })
-          .filter((task) => task !== null);
+            tasks.push({
+              task: taskName?.trim() || "Unnamed Task",
+              start_time: start,
+              end_time: end,
+              credits,
+              notes: notes?.trim() || "",
+              day: ""
+            });
+          }
+          return tasks;
+        } catch (e) {
+          console.error("Parsing error:", e);
+          return [];
+        }
       };
 
-      const tasks = parseAITextToTasks(aiText);
-
-      if (tasks.length === 0) {
-        throw new Error(
-          "Couldn't parse timetable format. Please try a different prompt."
-        );
+      let tasks = parseTasks(aiText);
+      console.log("Parsed Tasks:", tasks);
+      if (tasks.length === 0 || !validateTasks(tasks)) {
+        throw new Error("Couldn't create a valid timetable. Please try being more specific in your request.");
       }
 
-      const updatedDays = days.map((day) => ({
-        ...day,
-        tasks,
-      }));
+      // Process tasks for the schedule
+      let updatedDays;
+      if (isDaily) {
+        const today = new Date().toLocaleString('en-US', { weekday: 'long' });
+        updatedDays = days.map(day => ({
+          ...day,
+          tasks: day.name === today ? 
+            tasks.map(t => ({
+              id: Date.now() + Math.random(),
+              text: `${t.task} (${t.start_time}-${t.end_time})`,
+              completed: false,
+              points: t.credits,
+              time: `${t.start_time}-${t.end_time}`,
+              note: t.notes
+            })) : 
+            [...day.tasks] // Preserve existing tasks for other days
+        }));
+      } else {
+        // For weekly, assign tasks to their respective days
+        const dayTasks = {};
+        WEEKDAYS.forEach(day => {
+          dayTasks[day] = tasks
+            .filter(t => t.day.toLowerCase() === day.toLowerCase())
+            .map(t => ({
+              id: Date.now() + Math.random(),
+              text: `${t.task} (${t.start_time}-${t.end_time})`,
+              completed: false,
+              points: t.credits,
+              time: `${t.start_time}-${t.end_time}`,
+              note: t.notes
+            }));
+        });
 
+        updatedDays = days.map(day => ({
+          ...day,
+          tasks: [...dayTasks[day.name] || []] // Combine new tasks with existing ones
+        }));
+      }
+      
       setDays(updatedDays);
       Alert.alert(
-        "AI Timetable Generated",
-        "Your schedule was successfully created!"
+        "Success",
+        `Your ${isDaily ? "daily" : "weekly"} timetable was generated successfully!`,
+        [
+          { 
+            text: "View Schedule", 
+            onPress: () => navigation.goBack() 
+          },
+          {
+            text: "Add More",
+            onPress: () => setUserPrompt(""),
+            style: "cancel"
+          }
+        ]
       );
     } catch (err) {
-      console.error("API Error:", err);
+      console.error("Error:", err);
       setError(
-        err.message || "Failed to generate timetable. Please try again."
+        err.message.includes("Failed to fetch") ? 
+        "Network error. Please check your connection." :
+        err.message.includes("API key") ?
+        "Invalid API key. Please check your Gemini API key." :
+        err.message
       );
     } finally {
       setGenerating(false);
@@ -129,29 +235,45 @@ export default function AIPlanner({ navigation, route }) {
       keyboardShouldPersistTaps="handled"
     >
       <StatusBar backgroundColor="#6200ee" barStyle="light-content" />
-      <Text style={styles.title}>AI Weekly Planner</Text>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <MaterialIcons name="arrow-back" size={24} color="#4a4e69" />
+        </TouchableOpacity>
+        <Text style={styles.title}>AI {currentTask === "daily" ? "Daily" : "Weekly"} Planner</Text>
+        <View style={{ width: 24 }} />
+      </View>
+      
       <Text style={styles.description}>
-        Describe your goals, study time, breaks, and activities. Our AI will
-        create a personalized weekly timetable.
+        Describe your goals and preferences to generate a personalized {currentTask} schedule.
       </Text>
 
       {!USE_MOCK_API && (
-        <View style={styles.apiKeyContainerWrap}>
-          <Text style={styles.apiLabel}>Secret API Key</Text>
+        <View style={styles.apiKeyContainer}>
+          <Text style={styles.apiLabel}>API Key (required)</Text>
           <TextInput
-            style={styles.apiInputFull}
-            placeholder="Enter your Gemmini API key"
+            style={styles.apiInput}
+            placeholder="Enter your Gemini API key"
             secureTextEntry
             value={apiKey}
             onChangeText={setApiKey}
+            autoCapitalize="none"
+            autoCorrect={false}
           />
+          <Text style={styles.apiNote}>
+            Note: The app includes a default key that may have usage limits
+          </Text>
         </View>
       )}
 
       <TextInput
         style={styles.input}
         multiline
-        placeholder="E.g., I need to study 3 hours daily, workout in mornings, have coding sessions after lunch, and relax in evenings. I prefer starting at 8 AM."
+        numberOfLines={5}
+        placeholder={`Example: ${
+          currentTask === "daily" 
+            ? "I need to study Math from 9-11, workout at 7am, and have free time after 6pm." 
+            : "I want to study on weekdays 9-11, workout Mon/Wed/Fri mornings, and relax on weekends."
+        }`}
         placeholderTextColor="#888"
         value={userPrompt}
         onChangeText={(text) => {
@@ -160,7 +282,12 @@ export default function AIPlanner({ navigation, route }) {
         }}
       />
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {error ? (
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error" size={20} color="#ff6b6b" />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : null}
 
       <TouchableOpacity
         style={[
@@ -171,16 +298,11 @@ export default function AIPlanner({ navigation, route }) {
         disabled={generating || !userPrompt.trim()}
       >
         {generating ? (
-          <ActivityIndicator color="#fff" size="small" />
+          <ActivityIndicator color="#fff" />
         ) : (
           <>
             <Text style={styles.buttonText}>Generate Timetable</Text>
-            <MaterialIcons
-              name="autorenew"
-              size={20}
-              color="#fff"
-              style={{ marginLeft: 8 }}
-            />
+            <MaterialIcons name="autorenew" size={20} color="#fff" style={styles.buttonIcon} />
           </>
         )}
       </TouchableOpacity>
@@ -188,8 +310,9 @@ export default function AIPlanner({ navigation, route }) {
       <View style={styles.tipContainer}>
         <MaterialIcons name="lightbulb" size={20} color="#FFD700" />
         <Text style={styles.tipText}>
-          Tip: Be specific! Include preferred start times, subjects, and
-          activities for better results
+          {currentTask === "daily"
+            ? "Tip: Be specific about activities, durations, and preferred times for better results"
+            : "Tip: Mention which activities repeat on certain weekdays and any time constraints"}
         </Text>
       </View>
     </ScrollView>
@@ -198,17 +321,22 @@ export default function AIPlanner({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: {
+    flexGrow: 1,
     padding: 20,
-    paddingTop: 40,
     backgroundColor: "#f5f7ff",
-    minHeight: "100%",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
   },
   title: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: "bold",
     color: "#4a4e69",
-    marginBottom: 12,
     textAlign: "center",
+    flex: 1,
   },
   description: {
     fontSize: 16,
@@ -218,15 +346,15 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   input: {
-    backgroundColor: "white",
-    padding: 18,
+    backgroundColor: "#fff",
+    padding: 16,
     borderRadius: 12,
     fontSize: 16,
-    height: 170,
+    minHeight: 150,
     textAlignVertical: "top",
     borderWidth: 1,
     borderColor: "#e0e0e0",
-    marginBottom: 15,
+    marginBottom: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -240,7 +368,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 10,
+    marginVertical: 10,
     shadowColor: "#6a11cb",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -248,19 +376,30 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   disabledButton: {
-    backgroundColor: "#a5a5a5",
+    backgroundColor: "#aaa",
     opacity: 0.7,
   },
   buttonText: {
-    color: "white",
+    color: "#fff",
     fontSize: 18,
     fontWeight: "600",
   },
+  buttonIcon: {
+    marginLeft: 8,
+  },
+  errorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff0f0",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
   errorText: {
     color: "#ff6b6b",
-    marginTop: 5,
-    textAlign: "center",
+    marginLeft: 8,
     fontWeight: "500",
+    flex: 1,
   },
   tipContainer: {
     flexDirection: "row",
@@ -278,9 +417,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
   },
-  apiKeyContainerWrap: {
-    marginBottom: 15,
-    padding: 10,
+  apiKeyContainer: {
+    marginBottom: 20,
+    padding: 15,
     backgroundColor: "#fff",
     borderRadius: 10,
     borderWidth: 1,
@@ -292,12 +431,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#4a4e69",
   },
-  apiInputFull: {
-    backgroundColor: "#f2f2f2",
+  apiInput: {
+    backgroundColor: "#f8f9fa",
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: "#ddd",
     fontSize: 16,
+    marginBottom: 8,
+  },
+  apiNote: {
+    fontSize: 12,
+    color: "#888",
+    fontStyle: "italic",
   },
 });

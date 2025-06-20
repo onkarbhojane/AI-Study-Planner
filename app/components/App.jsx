@@ -16,6 +16,7 @@ import {
   Image,
   StatusBar,
   Button,
+  Platform,
 } from "react-native";
 import plus from "../../assets/images/plus.png";
 import { useNavigation } from "@react-navigation/native";
@@ -25,7 +26,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import ConfettiCannon from "react-native-confetti-cannon";
 import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
-
+import { Audio } from "expo-av";
+import refresh from "../../assets/images/refresh.png";
 export default function App() {
   const [days, setDays] = useState([
     { id: 0, name: "Monday", tasks: [] },
@@ -55,6 +57,7 @@ export default function App() {
   });
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [timePickerMode, setTimePickerMode] = useState("start");
+  const [sound, setSound] = useState();
   const bounceAnim = new Animated.Value(0);
   const navigation = useNavigation();
 
@@ -99,6 +102,15 @@ export default function App() {
     saveData();
   }, [days, totalPoints]);
 
+  // Sound cleanup
+  useEffect(() => {
+    return sound
+      ? () => {
+          sound.unloadAsync();
+        }
+      : undefined;
+  }, [sound]);
+
   const triggerBounce = () => {
     bounceAnim.setValue(0);
     Animated.timing(bounceAnim, {
@@ -107,6 +119,19 @@ export default function App() {
       easing: Easing.elastic(2),
       useNativeDriver: true,
     }).start();
+  };
+
+  const playSuccessSound = async () => {
+    try {
+      // Load and play the sound
+      const { sound: soundObject } = await Audio.Sound.createAsync(
+        require("../../assets/sounds/success.mp3")
+      );
+      setSound(soundObject);
+      await soundObject.playAsync();
+    } catch (error) {
+      console.error("Error playing sound", error);
+    }
   };
 
   const openTaskDetailsModal = () => {
@@ -169,8 +194,8 @@ export default function App() {
     Keyboard.dismiss();
   };
 
-  const toggleTask = (taskId) => {
-    if (editingPoints) return; // Prevent toggling while editing points
+  const toggleTask = async (taskId) => {
+    if (editingPoints) return;
 
     const updatedDays = [...days];
     const taskIndex = updatedDays[selectedDay].tasks.findIndex(
@@ -185,6 +210,10 @@ export default function App() {
       setRewardMessage(`+${task.points} points!`);
       setShowConfetti(true);
       triggerBounce();
+
+      // Play success sound
+      await playSuccessSound();
+
       setTimeout(() => setShowConfetti(false), 2000);
       setTimeout(() => setRewardMessage(""), 3000);
     } else {
@@ -244,7 +273,6 @@ export default function App() {
       inputRange: [0, 0.5, 1],
       outputRange: [1, 1.2, 1],
     });
-
     const isEditing = editingPoints && editingTaskId === item.id;
 
     return (
@@ -380,14 +408,7 @@ export default function App() {
 
           {/* Header */}
           <View style={styles.header}>
-            <Text
-              style={styles.title}
-              onPress={() =>
-                navigation.navigate("AIPlanner", { days, setDays })
-              }
-            >
-              🌟 Productivity Planner
-            </Text>
+            <Text style={styles.title}>🌟 Productivity Planner</Text>
             <View style={styles.pointsContainer}>
               <Text style={styles.pointsText}>🏆 {totalPoints} points</Text>
               {rewardMessage ? (
@@ -430,13 +451,36 @@ export default function App() {
               justifyContent: "space-between",
               alignItems: "center",
               alignContent: "center",
-              paddingRight: 15,
               marginBottom: 20,
             }}
           >
-            <Text style={styles.dayTitle}>
+            <Text style={[styles.dayTitle,{marginTop: 15}]}>
               {days[selectedDay].name}'s Tasks
             </Text>
+            <TouchableOpacity
+              style={[styles.aiButton,{position: "absolute", right: 100}]}
+              onPress={() =>
+                setDays([
+                  { id: 0, name: "Monday", tasks: [] },
+                  { id: 1, name: "Tuesday", tasks: [] },
+                  { id: 2, name: "Wednesday", tasks: [] },
+                  { id: 3, name: "Thursday", tasks: [] },
+                  { id: 4, name: "Friday", tasks: [] },
+                  { id: 5, name: "Saturday", tasks: [] },
+                  { id: 6, name: "Sunday", tasks: [] },
+                ])
+              }
+            >
+              <View style={styles.aiButtonText}>
+                <Image source={refresh} style={
+                    {
+                      width: 20,
+                      height: 20,
+                      tintColor: "#fff",
+                    }
+                } />
+              </View>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.aiButton}
               onPress={() => setPlannerModalVisible(true)}
@@ -444,7 +488,6 @@ export default function App() {
               <Text style={styles.aiButtonText}>Try AI</Text>
             </TouchableOpacity>
           </View>
-
           {days[selectedDay].tasks.length > 0 ? (
             <FlatList
               data={days[selectedDay].tasks}
@@ -588,7 +631,7 @@ export default function App() {
           </Modal>
 
           <Modal
-            animationType="slide"
+            animationType="fade"
             transparent={true}
             visible={plannerModalVisible}
             onRequestClose={() => setPlannerModalVisible(false)}
@@ -600,7 +643,11 @@ export default function App() {
                 {/* Weekly Planner Button */}
                 <TouchableOpacity
                   onPress={() => {
-                    navigation.navigate("AIPlanner", { days, setDays });
+                    navigation.navigate("AIPlanner", {
+                      days,
+                      setDays,
+                      currentTask: "weekly",
+                    });
                     setPlannerModalVisible(false);
                   }}
                   style={styles.plannerModalButton}
@@ -616,10 +663,10 @@ export default function App() {
                 {/* Daily Planner Button */}
                 <TouchableOpacity
                   onPress={() => {
-                    navigation.navigate("AIPlannerDaily", {
+                    navigation.navigate("AIPlanner", {
                       days,
                       setDays,
-                      selectedDay,
+                      currentTask: days[selectedDay].name.toLowerCase(),
                     });
                     setPlannerModalVisible(false);
                   }}
@@ -1156,7 +1203,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   aiButtonText: {
     color: "white",
     fontWeight: "bold",
