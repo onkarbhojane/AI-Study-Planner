@@ -20,7 +20,7 @@ export default function AIPlanner({ navigation, route }) {
   const { days, setDays, currentTask } = route.params;
   const [userPrompt, setUserPrompt] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [apiKey, setApiKey] = useState("AIzaSyBWfxTjfJKHYL6nN87dwjFSz1pdTG9IEZQ");
+  const [apiKey, setApiKey] = useState("YOUR_API_KEY");//set your own gemini API Key
   const [error, setError] = useState("");
 
   const validateTasks = (tasks) => {
