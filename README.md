@@ -1,22 +1,59 @@
-# 📚 AI Study Planner App (React Native + Gemini API)
+# 📚 AI Study Planner App
 
-Welcome to the **AI Study Planner App**, a cross-platform mobile app built with **React Native + Expo**. It uses **Google's Gemini API** to help students intelligently plan their study sessions and get personalized scheduling assistance.
-
----
-
-## 🚀 Features
-
-- 🤖 Chat with an AI-powered planner using Gemini API  
-- 📆 Generate personalized study schedules  
-- 📱 Cross-platform (Android, iOS, Web via Expo)  
-- ⚛️ Built using modern **React Native + Expo Router**
+A mobile application built using **React Native + Expo** that allows students to plan their studies with the help of **Google Gemini AI**.
 
 ---
 
-## 🔧 Setup Instructions
+## 🛠️ Setup Instructions
 
-### 1. Clone the Repository
+### 1️⃣ Clone the Repository
 
 ```bash
 git clone https://github.com/onkarbhojane/AI-Study-Planner.git
 cd AI-Study-Planner
+```
+
+---
+
+### 2️⃣ Install Dependencies
+
+```bash
+npm install
+```
+
+---
+
+### 3️⃣ Add Your Gemini API Key
+
+> ⚠️ Required for AI Planner to work
+
+- Open the file:
+
+```bash
+app/components/AIPlanner.jsx
+```
+
+- Replace the placeholder with your actual [Gemini API key](https://makersuite.google.com/app/apikey):
+
+```js
+const GEMINI_API_KEY = "your-gemini-api-key-here";
+```
+
+---
+
+### 4️⃣ Run the App
+
+```bash
+npx expo start
+```
+
+Use your terminal options or browser window to run the app on:
+- Android Emulator / Expo Go
+- iOS Simulator (macOS)
+- Web Browser (press `w`)
+
+---
+
+## ✅ You’re ready to go!
+
+This app will now use Gemini AI to help plan your study schedule through intelligent suggestions.
